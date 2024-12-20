@@ -1,0 +1,247 @@
+---
+title: "Data Science With R"
+author: "Raphael Pimentel"
+date: "`r format(Sys.time(), '%d/%m/%Y')`"
+output:
+  html_document:
+    highlight: textmate
+    logo: logo.png
+    theme: journal
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+    df_print: paged
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# imports
+
+```{r}
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(gtsummary)
+library(summarytools)
+library(kableExtra)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(summarytools)
+library(kableExtra)
+library(knitr)
+library(gridExtra)
+```
+
+# load data
+
+```{r}
+df <- read_csv("data/train.csv", col_names = TRUE)
+glimpse(df)
+```
+
+# data cleaning
+
+```{r}
+df1 <- janitor::clean_names(df) %>% 
+  rename(days_associated = vintage,
+         health_annual_paid = annual_premium) %>% 
+  mutate(
+    across(where(is.character), tolower),
+    driving_license = ifelse(driving_license == 1, 'yes', 'no'),
+    previously_insured = ifelse(previously_insured == 1, 'yes', 'no'),
+    response = ifelse(response == 1, 'yes', 'no'),
+    vehicle_age = case_when(
+      vehicle_age == "< 1 year" ~ "below_1_year",
+      vehicle_age == "1-2 year" ~ "between_1_2_years",
+      vehicle_age == "> 2 years" ~ "over_2_years"
+    )
+  ) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  mutate(response = factor(response, levels = c('yes', 'no')),
+         driving_license = factor(driving_license, levels = c('yes', 'no')),
+         previously_insured = factor(previously_insured, levels = c('yes', 'no')),
+         vehicle_damage = factor(vehicle_damage, levels = c('yes', 'no')))
+
+glimpse(df1)
+
+# save df_cleaned as RDS
+saveRDS(df1, 'df_cleaned.rds')
+```
+
+## data types
+
+```{r}
+variable_classes <- tibble(variables = names(df1),
+       type = unlist(lapply(df1, class))
+)
+variable_classes
+```
+
+# column description
+
+```{r}
+variables <- df1 %>% names()
+description <- c(
+  "Unique ID for the customer",
+  "Gender of the customer",
+  "Age of the customer",
+  "Customer has DL (yes/no)",
+  "Unique code for the region of the customer",
+  "Customer already has Vehicle Insurance (yes/no)",
+  "Age of the Vehicle",
+  "Customer got his/her vehicle damaged in the past (yes/no)",
+  "The amount customer needs to pay as premium in the year",
+  "Anonymized Code for the channel of outreaching to the customer ie. Different Agents, Over Mail, Over Phone, In Person, etc.",
+  "Number of Days, Customer has been associated with the company",
+  "Customer is interested (yes/no"
+)
+df_description <- tibble(variables = variables,
+       description = description)
+
+kable(data.frame(df_description), format = 'html') %>% 
+  kableExtra::kable_styling(bootstrap_options = 'striped',
+                            full_width = FALSE)
+```
+
+# descriptive statistics
+
+```{r}
+df_cleaned <- readRDS('df_cleaned.rds')
+glimpse(df_cleaned)
+```
+
+```{r}
+skimr::skim(df_cleaned)
+```
+
+## general overview
+
+```{r}
+df_cleaned %>% 
+  select(-id) %>% 
+  tbl_summary(
+    type = list(response ~ 'categorical',
+                driving_license ~ 'categorical',
+                previously_insured ~ 'categorical',
+                vehicle_damage ~ 'categorical'),
+    digits = list(all_categorical() ~ c(0, 2))
+  )
+```
+
+## more detailed statistics
+
+```{r}
+numerical <- df_cleaned %>% 
+  select(age, health_annual_paid, days_associated)
+```
+
+```{r}
+descriptive_tab <- summarytools::descr(numerical, style = 'rmarkdown') %>% round(2)
+
+kable(data.frame(descriptive_tab), format = 'html') %>% 
+  kableExtra::kable_styling(bootstrap_options = 'striped',
+                            full_width = FALSE)
+```
+
+## visualization
+
+```{r}
+# age
+age_plt <- numerical %>% 
+  ggplot(aes(x=age)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1,
+                 color = 'gray', fill = 'lightblue', alpha = 0.5) +
+geom_density(color="blue") +
+  labs(x ='age', y='density', title= 'Customers \nAge Distribution') +
+  theme_minimal()
+
+# health_annual_paid
+paid_plt <- numerical %>% 
+  ggplot(aes(x=health_annual_paid)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 10000,
+                 color = 'gray', fill = 'lightblue', alpha = 0.5) +
+geom_density(color="blue") +
+  labs(x ='health_annual_paid', y='density', title= 'Customers \nPayments \nDistribution') +
+  theme_minimal()
+
+# days_associated
+days_plt <- numerical %>% 
+  ggplot(aes(x=days_associated)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 10,
+                 color = 'gray', fill = 'lightblue', alpha = 0.5) +
+geom_density(color="blue") +
+  labs(x ='days_associated', y='density', title= 'Customers Days \nAssociated \nDistribution') +
+  theme_minimal()
+
+gridExtra::grid.arrange(age_plt, paid_plt, days_plt, ncol = 3)
+```
+
+## categorical attributes
+
+```{r}
+num_names <- names(numerical)
+categorical <- df_cleaned %>% 
+  select(-id, -one_of(num_names))
+```
+
+```{r}
+gender_plt <- categorical %>% 
+  ggplot(aes(x=gender)) +
+  geom_bar(aes(fill=gender)) +
+  labs(x = 'gender', y='#', title='Customers \nGender') +
+  theme_minimal()
+
+driving_license_plt <- categorical %>% 
+  ggplot(aes(x=driving_license)) +
+  geom_bar(aes(fill=driving_license)) +
+  labs(x = 'driving_license', y='#', title='Customers \nDriving License') +
+  theme_minimal()
+
+region_code_plt <- categorical %>% 
+  ggplot(aes(x=region_code)) +
+  geom_bar(aes(fill=factor(region_code)),
+           show.legend=FALSE) +
+  labs(x = 'region_code', y='#', title='Customers \nRegion Code') +
+  theme_minimal()
+
+previously_insured_plt <- categorical %>% 
+  ggplot(aes(x=previously_insured)) +
+  geom_bar(aes(fill=previously_insured)) +
+  labs(x = 'previously_insured', y='#', title='Customers \nPreviously Insured') +
+  theme_minimal()
+
+vehicle_age_plt <- categorical %>% 
+  ggplot(aes(x=vehicle_age)) +
+  geom_bar(aes(fill=vehicle_age)) +
+  labs(x = 'vehicle_age', y='#', title='Customers \nVehicle Age') +
+  theme_minimal()
+
+vehicle_damage_plt <- categorical %>% 
+  ggplot(aes(x=vehicle_damage)) +
+  geom_bar(aes(fill=vehicle_damage)) +
+  labs(x = 'vehicle_damage', y='#', title='Customers \nVehicle Damage') +
+  theme_minimal()
+
+policy_sales_channel_plt <- categorical %>% 
+  ggplot(aes(x=policy_sales_channel)) +
+  geom_bar(aes(fill=policy_sales_channel),
+           show.legend = FALSE) +
+  labs(x = 'policy_sales_channel', y='#', title='Customers \nPolicy Sales Channel') +
+  theme_minimal()
+
+response_plt <- categorical %>% 
+  ggplot(aes(x=response)) +
+  geom_bar(aes(fill=response)) +
+  labs(x = 'response', y='#', title='Customers \nResponse') +
+  theme_minimal()
+
+gridExtra::grid.arrange(gender_plt, driving_license_plt, region_code_plt, previously_insured_plt, vehicle_damage_plt, vehicle_age_plt, policy_sales_channel_plt, response_plt, ncol = 2, nrow = 4)
+```
